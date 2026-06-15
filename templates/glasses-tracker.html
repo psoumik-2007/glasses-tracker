@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>👓 Glasses Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #fff;
+            overflow-x: hidden;
+        }
+
+        header {
+            text-align: center;
+            padding: 2rem 1rem;
+            width: 100%;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, #e94560, #ff6b6b);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle { color: #a0a0a0; font-size: 1.1rem; }
+
+        .main-container {
+            display: flex;
+            gap: 2rem;
+            padding: 0 2rem 2rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 1400px;
+            width: 100%;
+        }
+
+        .video-section {
+            position: relative;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            border: 2px solid rgba(233, 69, 96, 0.3);
+        }
+
+        #webcam, #overlay {
+            width: 640px;
+            height: 480px;
+            display: block;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        .stats-panel {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            min-width: 300px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .stat-card {
+            background: rgba(0,0,0,0.3);
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border-left: 4px solid #e94560;
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover { transform: translateX(5px); }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: #a0a0a0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .glasses-yes { color: #4ecca3; }
+        .glasses-no { color: #e94560; }
+
+        .confidence-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .controls {
+            margin-top: 1rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(233, 69, 96, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .log-section {
+            margin-top: 1rem;
+            max-height: 200px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 1rem;
+        }
+
+        .log-entry {
+            padding: 0.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 10;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(233, 69, 96, 0.3);
+            border-top-color: #e94560;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .hidden { display: none !important; }
+
+        .face-marker {
+            position: absolute;
+            border: 3px solid;
+            border-radius: 8px;
+            pointer-events: none;
+            transition: all 0.2s;
+        }
+
+        .marker-glasses { border-color: #4ecca3; box-shadow: 0 0 20px rgba(78, 204, 163, 0.4); }
+        .marker-no-glasses { border-color: #e94560; box-shadow: 0 0 20px rgba(233, 69, 96, 0.4); }
+
+        .marker-label {
+            position: absolute;
+            top: -30px;
+            left: 0;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .label-glasses { background: #4ecca3; color: #1a1a2e; }
+        .label-no-glasses { background: #e94560; color: white; }
+
+        @media (max-width: 768px) {
+            #webcam, #overlay { width: 100%; height: auto; }
+            .main-container { padding: 0 1rem; }
+            h1 { font-size: 1.8rem; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>👓 Glasses Tracker</h1>
+        <p class="subtitle">Real-time glasses detection using TensorFlow.js</p>
+    </header>
+
+    <div class="main-container">
+        <div class="video-section">
+            <video id="webcam" autoplay playsinline muted></video>
+            <canvas id="overlay"></canvas>
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Loading AI models...</p>
+            </div>
+        </div>
+
+        <div class="stats-panel">
+            <div class="stat-card">
+                <div class="stat-label">Detection Status</div>
+                <div class="stat-value" id="status">Initializing...</div>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" id="confidenceBar" style="width: 0%; background: #e94560;"></div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-label">People with Glasses</div>
+                <div class="stat-value glasses-yes" id="glassesCount">0</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-label">People without Glasses</div>
+                <div class="stat-value glasses-no" id="noGlassesCount">0</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-label">Total Tracked</div>
+                <div class="stat-value" id="totalCount" style="color: #ffd93d;">0</div>
+            </div>
+
+            <div class="controls">
+                <button class="btn-primary" onclick="toggleTracking()" id="trackBtn">Start Tracking</button>
+                <button class="btn-secondary" onclick="resetStats()">Reset</button>
+                <button class="btn-secondary" onclick="exportData()">Export CSV</button>
+            </div>
+
+            <div class="log-section" id="logSection">
+                <div style="color: #a0a0a0; text-align: center; padding: 1rem;">No detections yet</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== CONFIGURATION ====================
+        const CONFIG = {
+            detectionInterval: 100,  // ms between detections
+            confidenceThreshold: 0.7,
+            glassesThreshold: 0.6,     // Eye region brightness threshold
+            minFaceSize: 100
+        };
+
+        // ==================== STATE ====================
+        let model = null;
+        let isTracking = false;
+        let stats = { glasses: 0, noGlasses: 0, total: 0, history: [] };
+        let animationId = null;
+        let trackedFaces = new Map(); // face tracking by approximate position
+
+        // ==================== DOM ELEMENTS ====================
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('overlay');
+        const ctx = canvas.getContext('2d');
+        const loading = document.getElementById('loading');
+
+        // ==================== INITIALIZATION ====================
+        async function init() {
+            try {
+                // Setup canvas
+                canvas.width = 640;
+                canvas.height = 480;
+
+                // Load BlazeFace model
+                model = await blazeface.load();
+                console.log('BlazeFace loaded');
+
+                // Request webcam
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480, facingMode: 'user' }
+                });
+                video.srcObject = stream;
+
+                await new Promise(resolve => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+
+                loading.classList.add('hidden');
+                document.getElementById('status').textContent = 'Ready - Click Start';
+                document.getElementById('status').style.color = '#ffd93d';
+
+            } catch (err) {
+                console.error('Init error:', err);
+                loading.innerHTML = `<p style="color: #e94560;">Error: ${err.message}</p>`;
+            }
+        }
+
+        // ==================== GLASSES DETECTION LOGIC ====================
+        function detectGlasses(face, imageData) {
+            // Get eye region coordinates from landmarks
+            const landmarks = face.landmarks;
+            const leftEye = landmarks[0];  // Left eye
+            const rightEye = landmarks[1]; // Right eye
+            
+            if (!leftEye || !rightEye) return { hasGlasses: false, confidence: 0 };
+
+            // Calculate eye region bounding box (expanded to catch glasses frames)
+            const eyeCenterX = (leftEye[0] + rightEye[0]) / 2;
+            const eyeCenterY = (leftEye[1] + rightEye[1]) / 2;
+            const eyeDistance = Math.sqrt(
+                Math.pow(rightEye[0] - leftEye[0], 2) + 
+                Math.pow(rightEye[1] - leftEye[1], 2)
+            );
+
+            // Define region of interest (bridge of nose + eyes area)
+            const roi = {
+                x: Math.max(0, Math.floor(eyeCenterX - eyeDistance)),
+                y: Math.max(0, Math.floor(eyeCenterY - eyeDistance * 0.5)),
+                w: Math.floor(eyeDistance * 2),
+                h: Math.floor(eyeDistance)
+            };
+
+            // Extract pixel data from canvas
+            const frameData = ctx.getImageData(roi.x, roi.y, roi.w, roi.h).data;
+            
+            // Analyze for glasses characteristics
+            let edgeCount = 0;
+            let darkPixelCount = 0;
+            let totalPixels = frameData.length / 4;
+            
+            // Edge detection and color analysis
+            for (let i = 0; i < frameData.length; i += 4) {
+                const r = frameData[i];
+                const g = frameData[i + 1];
+                const b = frameData[i + 2];
+                const brightness = (r + g + b) / 3;
+                
+                // Detect dark frames (common for glasses)
+                if (brightness < 80) darkPixelCount++;
+                
+                // Simple edge detection using neighboring pixels
+                if (i > 4) {
+                    const prevBrightness = (frameData[i-4] + frameData[i-3] + frameData[i-2]) / 3;
+                    if (Math.abs(brightness - prevBrightness) > 50) edgeCount++;
+                }
+            }
+
+            const darkRatio = darkPixelCount / totalPixels;
+            const edgeRatio = edgeCount / totalPixels;
+            
+            // Glasses detection heuristic: high edge density + frame-like dark regions
+            const glassesScore = (darkRatio * 0.4) + (edgeRatio * 0.6);
+            const hasGlasses = glassesScore > CONFIG.glassesThreshold;
+            
+            return {
+                hasGlasses,
+                confidence: Math.min(glassesScore * 1.5, 0.99),
+                metrics: { darkRatio, edgeRatio }
+            };
+        }
+
+        // ==================== FACE TRACKING ====================
+        function getFaceId(face) {
+            const centerX = (face.topLeft[0] + face.bottomRight[0]) / 2;
+            const centerY = (face.topLeft[1] + face.bottomRight[1]) / 2;
+            
+            // Find existing tracked face within proximity
+            for (const [id, tracked] of trackedFaces) {
+                const dist = Math.sqrt(
+                    Math.pow(tracked.x - centerX, 2) + 
+                    Math.pow(tracked.y - centerY, 2)
+                );
+                if (dist < 100) {
+                    tracked.x = centerX;
+                    tracked.y = centerY;
+                    tracked.lastSeen = Date.now();
+                    return id;
+                }
+            }
+            
+            // New face
+            const newId = Date.now() + Math.random();
+            trackedFaces.set(newId, { x: centerX, y: centerY, lastSeen: Date.now() });
+            return newId;
+        }
+
+        // ==================== DETECTION LOOP ====================
+        async function detectFrame() {
+            if (!isTracking) return;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Detect faces
+            const predictions = await model.estimateFaces(video, false);
+            
+            let currentGlasses = 0;
+            let currentNoGlasses = 0;
+
+            // Clean old tracked faces
+            const now = Date.now();
+            for (const [id, tracked] of trackedFaces) {
+                if (now - tracked.lastSeen > 2000) trackedFaces.delete(id);
+            }
+
+            predictions.forEach(face => {
+                const [x, y] = face.topLeft;
+                const [x2, y2] = face.bottomRight;
+                const width = x2 - x;
+                const height = y2 - y;
+
+                // Skip small detections
+                if (width < CONFIG.minFaceSize || height < CONFIG.minFaceSize) return;
+
+                // Detect glasses
+                const result = detectGlasses(face, null);
+                const hasGlasses = result.hasGlasses;
+                const confidence = result.confidence;
+
+                // Update counts
+                if (hasGlasses) currentGlasses++;
+                else currentNoGlasses++;
+
+                // Draw bounding box
+                ctx.strokeStyle = hasGlasses ? '#4ecca3' : '#e94560';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, width, height);
+
+                // Draw label
+                ctx.fillStyle = hasGlasses ? '#4ecca3' : '#e94560';
+                ctx.font = 'bold 16px Segoe UI';
+                const label = hasGlasses ? '👓 GLASSES' : '❌ NO GLASSES';
+                const labelWidth = ctx.measureText(label).width;
+                
+                ctx.fillStyle = hasGlasses ? 'rgba(78, 204, 163, 0.9)' : 'rgba(233, 69, 96, 0.9)';
+                ctx.fillRect(x, y - 28, labelWidth + 20, 26);
+                
+                ctx.fillStyle = '#fff';
+                ctx.fillText(label, x + 10, y - 8);
+
+                // Draw confidence
+                ctx.fillStyle = 'rgba(255,255,255,0.8)';
+                ctx.font = '12px Segoe UI';
+                ctx.fillText(`${(confidence * 100).toFixed(1)}%`, x + 10, y + height + 15);
+
+                // Draw landmarks
+                face.landmarks.forEach(point => {
+                    ctx.beginPath();
+                    ctx.arc(point[0], point[1], 3, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#ffd93d';
+                    ctx.fill();
+                });
+            });
+
+            // Update stats
+            stats.glasses = currentGlasses;
+            stats.noGlasses = currentNoGlasses;
+            stats.total = predictions.length;
+            
+            updateUI();
+            logDetection(currentGlasses, currentNoGlasses);
+
+            animationId = requestAnimationFrame(detectFrame);
+        }
+
+        // ==================== UI UPDATES ====================
+        function updateUI() {
+            document.getElementById('glassesCount').textContent = stats.glasses;
+            document.getElementById('noGlassesCount').textContent = stats.noGlasses;
+            document.getElementById('totalCount').textContent = stats.total;
+
+            const statusEl = document.getElementById('status');
+            const bar = document.getElementById('confidenceBar');
+            
+            if (stats.total > 0) {
+                const ratio = stats.glasses / stats.total;
+                statusEl.textContent = `${stats.glasses} of ${stats.total} wearing glasses`;
+                statusEl.style.color = ratio > 0.5 ? '#4ecca3' : '#e94560';
+                bar.style.width = `${ratio * 100}%`;
+                bar.style.background = ratio > 0.5 ? '#4ecca3' : '#e94560';
+            } else {
+                statusEl.textContent = 'No faces detected';
+                statusEl.style.color = '#a0a0a0';
+                bar.style.width = '0%';
+            }
+        }
+
+        function logDetection(glasses, noGlasses) {
+            const logSection = document.getElementById('logSection');
+            if (stats.history.length === 0 && glasses + noGlasses === 0) return;
+            
+            const entry = {
+                time: new Date().toLocaleTimeString(),
+                glasses,
+                noGlasses,
+                total: glasses + noGlasses
+            };
+            
+            // Only log if changed
+            const last = stats.history[stats.history.length - 1];
+            if (!last || last.glasses !== glasses || last.noGlasses !== noGlasses) {
+                stats.history.push(entry);
+                
+                const div = document.createElement('div');
+                div.className = 'log-entry';
+                div.innerHTML = `
+                    <span>${entry.time}</span>
+                    <span style="color: #4ecca3;">${entry.glasses} 👓</span>
+                    <span style="color: #e94560;">${entry.noGlasses} ❌</span>
+                `;
+                
+                if (logSection.children[0]?.textContent === 'No detections yet') {
+                    logSection.innerHTML = '';
+                }
+                logSection.insertBefore(div, logSection.firstChild);
+                
+                // Keep only last 20 entries
+                while (logSection.children.length > 20) {
+                    logSection.removeChild(logSection.lastChild);
+                }
+            }
+        }
+
+        // ==================== CONTROLS ====================
+        function toggleTracking() {
+            const btn = document.getElementById('trackBtn');
+            isTracking = !isTracking;
+            
+            if (isTracking) {
+                btn.textContent = 'Stop Tracking';
+                btn.style.background = 'linear-gradient(135deg, #e94560, #c73659)';
+                detectFrame();
+            } else {
+                btn.textContent = 'Start Tracking';
+                btn.style.background = 'linear-gradient(135deg, #e94560, #ff6b6b)';
+                cancelAnimationFrame(animationId);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        function resetStats() {
+            stats = { glasses: 0, noGlasses: 0, total: 0, history: [] };
+            trackedFaces.clear();
+            document.getElementById('logSection').innerHTML = '<div style="color: #a0a0a0; text-align: center; padding: 1rem;">No detections yet</div>';
+            updateUI();
+        }
+
+        function exportData() {
+            if (stats.history.length === 0) {
+                alert('No data to export yet!');
+                return;
+            }
+            
+            const csv = [
+                'Time,Glasses,No Glasses,Total',
+                ...stats.history.map(h => `${h.time},${h.glasses},${h.noGlasses},${h.total}`)
+            ].join('\n');
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `glasses-tracking-${new Date().toISOString().slice(0,10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // ==================== START ====================
+        init();
+    </script>
+</body>
+</html>
